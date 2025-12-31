@@ -1,4 +1,4 @@
-# VERSIONE: 2.3.3 (Analisi Reale vs Media + Dettaglio Conteggi Annuali)
+# VERSIONE: 2.3.4 (DEFINITIVA - Ordine Cronologico Crescente)
 import streamlit as st
 import pandas as pd
 import datetime
@@ -9,19 +9,6 @@ from io import StringIO
 DRIVE_URL = "https://drive.google.com/uc?export=download&id=1n4b33BgWxIUDWm4xuDnhjICPkqGWi2po"
 
 # --- FUNZIONI DI SUPPORTO ---
-
-def calcola_pasqua(anno):
-    a, b, c = anno % 19, anno // 100, anno % 100
-    d, e = b // 4, b % 4
-    f = (b + 8) // 25
-    g = (b - f + 1) // 3
-    h = (19 * a + b - d - g + 15) % 30
-    i, k = c // 4, c % 4
-    l = (32 + 2 * e + 2 * i - h - k) % 7
-    m = (a + 11 * h + 22 * l) // 451
-    mese = (h + l - 7 * m + 114) // 31
-    giorno = ((h + l - 7 * m + 114) % 31) + 1
-    return datetime.date(anno, mese, giorno), datetime.date(anno, mese, giorno) + datetime.timedelta(days=1)
 
 def get_fascia_info(ora_str):
     try:
@@ -72,7 +59,7 @@ def parse_ics(content):
     return data
 
 # --- CSS ---
-st.set_page_config(page_title="Analisi Carico 2.3.3", layout="wide")
+st.set_page_config(page_title="Dashboard Appuntamenti 2.3.4", layout="wide")
 st.markdown("""
 <style>
     thead tr th:first-child {display:none} tbody th {display:none}
@@ -111,8 +98,8 @@ if raw_data:
     df_week = df[df["Settimana"] == sel_week]
     
     if not df_week.empty:
-        # --- ANALISI PREDITTIVA CON DETTAGLIO REALE ---
-        anni_list = sorted(df_week["Anno"].unique(), reverse=True)
+        # --- ANALISI PREDITTIVA (ORDINE CRONOLOGICO) ---
+        anni_list = sorted(df_week["Anno"].unique()) # Dal più vecchio al più nuovo
         dettaglio_anni = " | ".join([f"**{a}:** {len(df_week[df_week['Anno']==a])} app." for a in anni_list])
         media_app = round(len(df_week) / len(anni_list), 1)
         
@@ -131,7 +118,7 @@ if raw_data:
         </div>
         """, unsafe_allow_html=True)
 
-        # --- TABELLE ANNUALI ---
+        # --- TABELLE ANNUALI (ORDINE CRONOLOGICO) ---
         cols = st.columns(len(anni_list))
         for idx, anno in enumerate(anni_list):
             with cols[idx]:
@@ -159,7 +146,7 @@ if raw_data:
                     </table>
                 </div>""", unsafe_allow_html=True)
 
-    # --- MAPPE (INALTERATE) ---
+    # --- MAPPE ---
     st.markdown("---")
     st.subheader("📊 Mappa Oraria delle Frequenze")
     ord_f = ["09:00-12:00", "12:30-15:30", "16:00-19:00", "19:30-22:00"]
@@ -173,3 +160,5 @@ if raw_data:
     pivot_m = df.pivot_table(index="Mese_T", columns="Anno", values="Giorno", aggfunc="count", fill_value=0)
     pivot_m = pivot_m.reindex([mesi_it[m] for m in range(1,13) if mesi_it[m] in pivot_m.index])
     st.dataframe(pivot_m.style.background_gradient(cmap="Reds"), use_container_width=True)
+else:
+    st.warning("⚠️ Caricamento fallito. Verifica il link Drive.")
