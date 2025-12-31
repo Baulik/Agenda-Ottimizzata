@@ -1,4 +1,4 @@
-# VERSIONE: 2.3.1 (Bug Fix Visualizzazione + 4 Fasce Flessibili)
+# VERSIONE: 2.3.2 (Ripristino Date, Analisi Isole di Tempo e Bug Fix)
 import streamlit as st
 import pandas as pd
 import datetime
@@ -21,7 +21,7 @@ def calcola_pasqua(anno):
     m = (a + 11 * h + 22 * l) // 451
     mese = (h + l - 7 * m + 114) // 31
     giorno = ((h + l - 7 * m + 114) % 31) + 1
-    return datetime.date(anno, mese, giorno), datetime.date(anno, mese, giorno) + datetime.timedelta(days=1)
+    return datetime.date(anno, mese, g), datetime.date(anno, mese, g) + datetime.timedelta(days=1)
 
 def get_festivita(anno):
     p, pp = calcola_pasqua(anno)
@@ -31,7 +31,6 @@ def get_festivita(anno):
             datetime.date(anno,11,1):"Ognissanti", datetime.date(anno,12,8):"Immacolata", 
             datetime.date(anno,12,25):"Natale", datetime.date(anno,12,26):"S. Stefano", p:"Pasqua", pp:"Pasquetta"}
 
-# LOGICA 4 FASCE MIGLIORATA (Evita celle vuote)
 def get_fascia_info(ora_str):
     try:
         h = int(ora_str.split(":")[0])
@@ -53,13 +52,11 @@ def load_data_from_drive(url):
 def parse_ics(content):
     if not content: return []
     data = []
-    current_event = {"summary": "", "description": "", "dtstart": ""}
-    in_event = False
     for line in StringIO(content):
         line = line.strip()
         if line.startswith("BEGIN:VEVENT"):
-            in_event = True
             current_event = {"summary": "", "description": "", "dtstart": ""}
+            in_event = True
         elif line.startswith("END:VEVENT"):
             in_event = False
             txt = (current_event["summary"] + " " + current_event["description"]).lower()
@@ -80,12 +77,11 @@ def parse_ics(content):
             elif "Nominativo" in line or "Codice fiscale" in line: current_event["description"] += line
     return data
 
-# --- CONFIGURAZIONE PAGINA ---
-st.set_page_config(page_title="Dashboard Appuntamenti 2.3.1", layout="wide")
+# --- PAGINA ---
+st.set_page_config(page_title="Dashboard Appuntamenti 2.3.2", layout="wide")
 st.markdown("""
 <style>
     thead tr th:first-child {display:none} tbody th {display:none}
-    div[data-testid="stNumberInput"] input { font-size: 24px !important; font-weight: bold; }
     .year-card { border: 1px solid #dcdde1; border-radius: 12px; padding: 10px; background-color: #ffffff; margin-bottom: 20px; }
     .grid-table { width: 100%; border-collapse: separate; border-spacing: 2px; table-layout: fixed; }
     .grid-table td { border-bottom: 1px solid #f1f2f6; padding: 6px 2px; vertical-align: middle; height: 45px; border-radius: 4px; text-align: center; }
@@ -93,12 +89,11 @@ st.markdown("""
     .time-slot { width: 20%; font-size: 11px; font-weight: bold; }
     .free-slot { background-color: #d1dce5; color: #d1dce5; border: 1px solid #b8c5d1; }
     .busy-slot { background-color: #ffffff; border: 1px solid #e1e8ed; color: #2980b9; }
-    .holiday-label { display: block; font-size: 8px; color: #e67e22; }
-    .insight-box { background-color: #f1f8ff; border-left: 5px solid #007bff; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+    .insight-box { background-color: #f1f8ff; border-left: 5px solid #007bff; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #004085; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 Analisi Storica")
+st.title("📊 Analisi Storica e Predittiva")
 
 content = load_data_from_drive(DRIVE_URL)
 raw_data = parse_ics(content) if content else []
@@ -108,44 +103,54 @@ if raw_data:
     mesi_it = {1:"Gennaio", 2:"Febbraio", 3:"Marzo", 4:"Aprile", 5:"Maggio", 6:"Giugno", 7:"Luglio", 8:"Agosto", 9:"Settembre", 10:"Ottobre", 11:"Novembre", 12:"Dicembre"}
     g_abr = {0:"Lun", 1:"Mar", 2:"Mer", 3:"Gio", 4:"Ven", 5:"Sab"}
     
-    sel_week = st.number_input("Settimana:", 1, 53, datetime.date.today().isocalendar()[1])
+    c_sel, c_info = st.columns([1, 2])
+    with c_sel:
+        sel_week = st.number_input("Settimana:", 1, 53, datetime.date.today().isocalendar()[1])
+    
+    # RIPRISTINO DATE SETTIMANA
+    oggi = datetime.date.today()
+    ref_start = datetime.date.fromisocalendar(oggi.year, sel_week, 1)
+    ref_end = datetime.date.fromisocalendar(oggi.year, sel_week, 7)
+    c_info.info(f"Riferimento Settimana {sel_week}: dal **{ref_start.day} {mesi_it[ref_start.month]}** al **{ref_end.day} {mesi_it[ref_end.month]}**")
+
     df_week = df[df["Settimana"] == sel_week]
     
     if not df_week.empty:
-        # INSIGHTS
+        # RIPRISTINO ANALISI ISOLE DI TEMPO
         num_anni = df_week["Anno"].nunique()
         media = round(len(df_week) / num_anni, 1)
-        st.markdown(f"<div class='insight-box'><b>💡 Analisi Settimana {sel_week}:</b><br>• Media: <b>{media}</b> appuntamenti/anno.<br>• Storico basato su {num_anni} anni.</div>", unsafe_allow_html=True)
+        f_counts = df_week['Fascia'].value_counts()
+        tutte_f = ["09:00-12:00", "12:30-15:30", "16:00-19:00", "19:30-22:00"]
+        piu_libera = min(tutte_f, key=lambda x: f_counts.get(x, 0))
+        piu_carica = max(tutte_f, key=lambda x: f_counts.get(x, 0))
+        
+        st.markdown(f"""
+        <div class='insight-box'>
+            <b>💡 Analisi Predittiva Settimana {sel_week}:</b><br>
+            • <b>Frequenza Media:</b> Mediamente <b>{media}</b> appuntamenti/anno.<br>
+            • <b>Isola di tempo:</b> Storicamente la fascia più libera è <b>{piu_libera}</b>.<br>
+            • <b>Momento critico:</b> La fascia solitamente più impegnata è <b>{piu_carica}</b>.<br>
+            • <b>Storico:</b> Dati basati su {num_anni} anni.
+        </div>
+        """, unsafe_allow_html=True)
 
-        # TABELLE PER ANNO
+        # TABELLE ANNUALI
         anni = sorted(df_week["Anno"].unique()) 
         cols = st.columns(len(anni))
         for idx, anno in enumerate(anni):
             with cols[idx]:
                 df_anno = df_week[df_week["Anno"] == anno]
-                feste = get_festivita(anno)
                 rows_html = ""
                 for g_idx in range(6): 
-                    data_p = datetime.date.fromisocalendar(anno, sel_week, g_idx+1)
-                    f_lbl = f"<span class='holiday-label'>{feste.get(data_p, '')}</span>"
                     ev_g = df_anno[df_anno["Giorno"] == g_idx]
-                    
                     corsie = ["", "", "", ""]
                     for _, row in ev_g.sort_values("Ora_Esatta").iterrows():
                         c_idx, _ = get_fascia_info(row["Ora_Esatta"])
                         corsie[c_idx] += f"<div>{row['Ora_Esatta']}</div>"
-                    
                     cls = ["time-slot " + ("busy-slot" if c else "free-slot") for c in corsie]
-                    rows_html += f"<tr><td class='day-label'>{g_abr[g_idx]} {f_lbl}</td><td class='{cls[0]}'>{corsie[0]}</td><td class='{cls[1]}'>{corsie[1]}</td><td class='{cls[2]}'>{corsie[2]}</td><td class='{cls[3]}'>{corsie[3]}</td></tr>"
+                    rows_html += f"<tr><td class='day-label'>{g_abr[g_idx]}</td><td class='{cls[0]}'>{corsie[0]}</td><td class='{cls[1]}'>{corsie[1]}</td><td class='{cls[2]}'>{corsie[2]}</td><td class='{cls[3]}'>{corsie[3]}</td></tr>"
                 
-                st.markdown(f"""
-                <div class='year-card'>
-                    <h3 style='text-align:center;'>{anno}</h3>
-                    <table class='grid-table'>
-                        <tr style='font-size:8px; color:#95a5a6;'><th>Giorno</th><th>09-12</th><th>12:30-15</th><th>16-19</th><th>19:30-22</th></tr>
-                        {rows_html}
-                    </table>
-                </div>""", unsafe_allow_html=True)
+                st.markdown(f"<div class='year-card'><h3 style='text-align:center;'>{anno}</h3><table class='grid-table'><tr style='font-size:8px; color:#9c9c9c;'><th>Giorno</th><th>09-12</th><th>12:3-15</th><th>16-19</th><th>19:3-22</th></tr>{rows_html}</table></div>", unsafe_allow_html=True)
 
     # MAPPA BLU
     st.markdown("---")
